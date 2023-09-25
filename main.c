@@ -107,398 +107,7 @@ bench_connect(const char *hostname, uint16_t port)
 	/* Connect to the Tarantool. */
 	if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == -1)
 		ERROR_SYS("Couldn't connect to Tarantool.");
-#if 0
-	struct timeval tmout_connect = {
-		.tv_sec = 16,
-	};
-	tnt_io_nonblock(fd, 1);
-	if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-		if (errno == EINPROGRESS) {
-			/** waiting for connection while handling signal events */
-			const int64_t micro = 1000000;
-			int64_t tmout_usec = tmout_connect.tv_sec * micro;
-			/* get start connect time */
-			struct timeval start_connect;
-			if (gettimeofday(&start_connect, NULL) == -1)
-				ERROR_SYS("Couldn't get the connection start time");
-			/* set initial timer */
-			struct timeval tmout;
-			memcpy(&tmout, &tmout_connect, sizeof(tmout));
-			while (1) {
-				fd_set fds;
-				FD_ZERO(&fds);
-				FD_SET(fd, &fds);
-				int ret = select(fd + 1, NULL, &fds, NULL, &tmout);
-				if (ret == -1) {
-					if (errno == EINTR || errno == EAGAIN) {
-						/* get current time */
-						struct timeval curr;
-						if (gettimeofday(&curr, NULL) == -1)
-							ERROR_SYS("Coudn't get the current time");
-						/* calculate timeout last time */
-						int64_t passd_usec = (curr.tv_sec - start_connect.tv_sec) * micro +
-							(curr.tv_usec - start_connect.tv_usec);
-						int64_t curr_tmeout = passd_usec - tmout_usec;
-						if (curr_tmeout <= 0)
-							ERROR_FATAL("Connection timeout.");
-						tmout.tv_sec = curr_tmeout / micro;
-						tmout.tv_usec = curr_tmeout % micro;
-					} else {
-						ERROR_SYS("Unexpected error in fselect");
-					}
-				} else if (ret == 0) {
-					ERROR_FATAL("Connection timeout.");
-				} else {
-					/* we have a event on socket */
-					break;
-				}
-			}
-			/* checking error status */
-			int opt = 0;
-			socklen_t len = sizeof(opt);
-			if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &opt, &len) == -1)
-				ERROR_SYS("Couldn't get the socket error status");
-			if (opt)
-				ERROR_FATAL("Socket error: %s.", strerror(opt));
-		} else {
-			ERROR_SYS("Unexpected error in connect");
-		}
-	}
-	/* setting block */
-	tnt_io_nonblock(fd, 0);
-#endif
 	return fd;
-}
-
-#define WRITE_IOVEC(fd, v, v_len) do {                           \
-	char buf[1024];                                          \
-	size_t size = 0;\
-	for (int i = 0; i < v_len; i++) {\
-		memcpy(buf + size, v[i].iov_base, v[i].iov_len);\
-		size += v[i].iov_len;\
-	}\
-	DumpHex(buf, size);\
-	write(fd, buf, size);\
-} while (0)
-
-#define READ(fd) do { \
-	char mp_uint32[9]; \
-	read(fd, &mp_uint32, sizeof(mp_uint32)); \
-	DumpHex(&mp_uint32, sizeof(mp_uint32)); \
-	const char *mp_uint32_end = mp_uint32; \
-	uint32_t bufsize = mp_decode_uint(&mp_uint32_end); \
-	int bufsize_size = mp_uint32_end - mp_uint32; \
-	bufsize -= sizeof(mp_uint32) - bufsize_size; \
-	char *buf = calloc(1, bufsize); \
-	read(fd, buf, bufsize); \
-	DumpHex(buf, bufsize); \
-} while (0)
-
-enum tnt_header_key_t {
-        TNT_CODE      = 0x00,
-        TNT_SYNC      = 0x01,
-        TNT_SERVER_ID = 0x02,
-        TNT_LSN       = 0x03,
-        TNT_TIMESTAMP = 0x04,
-        TNT_SCHEMA_ID = 0x05
-};
-
-enum tnt_body_key_t {
-        TNT_SPACE = 0x10,
-        TNT_INDEX = 0x11,
-        TNT_LIMIT = 0x12,
-        TNT_OFFSET = 0x13,
-        TNT_ITERATOR = 0x14,
-        TNT_INDEX_BASE = 0x15,
-        TNT_KEY = 0x20,
-        TNT_TUPLE = 0x21,
-        TNT_FUNCTION = 0x22,
-        TNT_USERNAME = 0x23,
-        TNT_SERVER_UUID = 0x24,
-        TNT_CLUSTER_UUID = 0x25,
-        TNT_VCLOCK = 0x26,
-        TNT_EXPRESSION = 0x27,
-        TNT_OPS = 0x28,
-        TNT_SQL_TEXT = 0x40,
-        TNT_SQL_BIND = 0x41,
-};
-
-enum tnt_response_type_t {
-        TNT_OK    = 0x00,
-        TNT_CHUNK = 0x80,
-};
-
-enum tnt_response_key_t {
-        TNT_DATA = 0x30,
-        TNT_ERROR = 0x31,
-        TNT_METADATA = 0x32,
-        TNT_SQL_INFO = 0x42,
-};
-
-enum tnt_request_t {
-        TNT_OP_SELECT    = 1,
-        TNT_OP_INSERT    = 2,
-        TNT_OP_REPLACE   = 3,
-        TNT_OP_UPDATE    = 4,
-        TNT_OP_DELETE    = 5,
-        TNT_OP_CALL_16   = 6,
-        TNT_OP_AUTH      = 7,
-        TNT_OP_EVAL      = 8,
-        TNT_OP_UPSERT    = 9,
-        TNT_OP_CALL      = 10,
-        TNT_OP_EXECUTE   = 11,
-        TNT_OP_PING      = 64,
-        TNT_OP_JOIN      = 65,
-        TNT_OP_SUBSCRIBE = 66
-};
-
-#include "msgpuck/msgpuck.h"
-
-struct tnt_iheader {
-        char header[25];
-        char *end;
-};
-
-static inline int
-encode_header(struct tnt_iheader *hdr, uint32_t code, uint64_t sync)
-{
-        memset(hdr, 0, sizeof(struct tnt_iheader));
-        char *h = mp_encode_map(hdr->header, 2);
-        h = mp_encode_uint(h, TNT_CODE);
-        h = mp_encode_uint(h, code);
-        h = mp_encode_uint(h, TNT_SYNC);
-        h = mp_encode_uint(h, sync);
-        hdr->end = h;
-        return 0;
-}
-
-static inline size_t
-mp_sizeof_luint32(uint64_t num) {
-        if (num <= UINT32_MAX)
-                return 1 + sizeof(uint32_t);
-        return 1 + sizeof(uint64_t);
-}
-
-static inline char *
-mp_encode_luint32(char *data, uint64_t num) {
-        if (num <= UINT32_MAX) {
-                data = mp_store_u8(data, 0xce);
-                return mp_store_u32(data, num);
-        }
-        data = mp_store_u8(data, 0xcf);
-        return mp_store_u64(data, num);
-}
-
-void
-bench_iproto_call(int fd, const char *proc, uint32_t key)
-{
-	size_t proc_len = strlen(proc);
-      	char args_data[6];
-	size_t args_size = sizeof(args_data);
-	{
-		char *data = args_data;
-		data = mp_encode_array(data, 1);
-		data = mp_encode_uint(data, key);
-		assert(data - args_data == sizeof(args_data));
-	}
-
-	struct tnt_iheader hdr;
-        struct iovec v[6]; int v_sz = 6;
-        char *data = NULL, *body_start = NULL;
-        encode_header(&hdr, TNT_OP_CALL_16, 0);
-        v[1].iov_base = (void *)hdr.header;
-        v[1].iov_len  = hdr.end - hdr.header;
-        char body[64]; body_start = body; data = body;
-
-        data = mp_encode_map(data, 2);
-        data = mp_encode_uint(data, TNT_FUNCTION);
-        data = mp_encode_strl(data, proc_len);
-        v[2].iov_base = body_start;
-        v[2].iov_len  = data - body_start;
-        v[3].iov_base = (void *)proc;
-        v[3].iov_len  = proc_len;
-        body_start = data;
-        data = mp_encode_uint(data, TNT_TUPLE);
-        v[4].iov_base = body_start;
-        v[4].iov_len  = data - body_start;
-        v[5].iov_base = args_data;
-        v[5].iov_len  = args_size;
-
-        size_t package_len = 0;
-        for (int i = 1; i < v_sz; ++i)
-                package_len += v[i].iov_len;
-        char len_prefix[9];
-        char *len_end = mp_encode_luint32(len_prefix, package_len);
-        v[0].iov_base = len_prefix;
-        v[0].iov_len = len_end - len_prefix;
-	WRITE_IOVEC(fd, v, v_sz);
-	READ(fd);
-}
-
-void
-bench_iproto_store(int fd, uint32_t key, int op)
-{
-	char tuple_data[6];
-	size_t tuple_size = sizeof(tuple_data);
-	{
-		char *data = tuple_data;
-		data = mp_encode_array(data, 1);
-		data = mp_encode_uint(data, key);
-		assert(data - tuple_data == sizeof(tuple_data));
-	}
-
-	struct tnt_iheader hdr;
-        struct iovec v[4]; int v_sz = 4;
-        char *data = NULL;
-        encode_header(&hdr, op, 0);
-        v[1].iov_base = (void *)hdr.header;
-        v[1].iov_len  = hdr.end - hdr.header;
-        char body[64]; data = body;
-
-        data = mp_encode_map(data, 2);
-        data = mp_encode_uint(data, TNT_SPACE);
-        data = mp_encode_uint(data, 512);
-        data = mp_encode_uint(data, TNT_TUPLE);
-        v[2].iov_base = body;
-        v[2].iov_len  = data - body;
-        v[3].iov_base = tuple_data;
-        v[3].iov_len  = tuple_size;
-
-        size_t package_len = 0;
-        for (int i = 1; i < v_sz; ++i)
-                package_len += v[i].iov_len;
-        char len_prefix[9];
-        char *len_end = mp_encode_luint32(len_prefix, package_len);
-        v[0].iov_base = len_prefix;
-        v[0].iov_len = len_end - len_prefix;
-	WRITE_IOVEC(fd, v, v_sz);
-	READ(fd);
-}
-
-void
-bench_iproto_insert(int fd, uint32_t key)
-{
-	return bench_iproto_store(fd, key, TNT_OP_INSERT);
-}
-
-void
-bench_iproto_replace(int fd, uint32_t key)
-{
-	return bench_iproto_store(fd, key, TNT_OP_REPLACE);
-}
-
-void
-bench_iproto_select(int fd, uint32_t key)
-{
-	char key_data[6];
-	size_t key_size = sizeof(key_data);
-	{
-		char *data = key_data;
-		data = mp_encode_array(data, 1);
-		data = mp_encode_uint(data, key);
-		assert(data - key_data == sizeof(key_data));
-	}
-	struct tnt_iheader hdr;
-        struct iovec v[4]; int v_sz = 4;
-        char *data = NULL;
-        encode_header(&hdr, TNT_OP_SELECT, 0);
-        v[1].iov_base = (void *)hdr.header;
-        v[1].iov_len  = hdr.end - hdr.header;
-        char body[64]; data = body;
-
-        data = mp_encode_map(data, 6);
-        data = mp_encode_uint(data, TNT_SPACE);
-        data = mp_encode_uint(data, 512);
-        data = mp_encode_uint(data, TNT_INDEX);
-        data = mp_encode_uint(data, 0);
-        data = mp_encode_uint(data, TNT_LIMIT);
-        data = mp_encode_uint(data, 0xffffffff);
-        data = mp_encode_uint(data, TNT_OFFSET);
-        data = mp_encode_uint(data, 0);
-        data = mp_encode_uint(data, TNT_ITERATOR);
-        data = mp_encode_uint(data, 0);
-        data = mp_encode_uint(data, TNT_KEY);
-        v[2].iov_base = body;
-        v[2].iov_len  = data - body;
-        v[3].iov_base = key_data;
-        v[3].iov_len  = key_size;
-
-        size_t package_len = 0;
-        for (int i = 1; i < v_sz; ++i)
-                package_len += v[i].iov_len;
-        char len_prefix[9];
-        char *len_end = mp_encode_luint32(len_prefix, package_len);
-        v[0].iov_base = len_prefix;
-        v[0].iov_len = len_end - len_prefix;
-	WRITE_IOVEC(fd, v, v_sz);
-	READ(fd);
-}
-
-void
-bench_iproto_delete(int fd, uint32_t key)
-{
-	char key_data[6];
-	size_t key_size = sizeof(key_data);
-	{
-		char *data = key_data;
-		data = mp_encode_array(data, 1);
-		data = mp_encode_uint(data, key);
-		assert(data - key_data == sizeof(key_data));
-	}
-	struct tnt_iheader hdr;
-        struct iovec v[4]; int v_sz = 4;
-        char *data = NULL;
-        encode_header(&hdr, TNT_OP_DELETE, 0);
-        v[1].iov_base = (void *)hdr.header;
-        v[1].iov_len  = hdr.end - hdr.header;
-        char body[64]; data = body;
-
-        data = mp_encode_map(data, 3);
-        data = mp_encode_uint(data, TNT_SPACE);
-        data = mp_encode_uint(data, 512);
-        data = mp_encode_uint(data, TNT_INDEX);
-        data = mp_encode_uint(data, 0);
-        data = mp_encode_uint(data, TNT_KEY);
-        v[2].iov_base = body;
-        v[2].iov_len  = data - body;
-        v[3].iov_base = key_data;
-        v[3].iov_len  = key_size;
-
-        size_t package_len = 0;
-        for (int i = 1; i < v_sz; ++i)
-                package_len += v[i].iov_len;
-        char len_prefix[9];
-        char *len_end = mp_encode_luint32(len_prefix, package_len);
-        v[0].iov_base = len_prefix;
-        v[0].iov_len = len_end - len_prefix;
-	WRITE_IOVEC(fd, v, v_sz);
-        READ(fd);
-}
-
-void
-bench_iproto_ping(int fd)
-{
-	struct tnt_iheader hdr;
-        struct iovec v[3]; int v_sz = 3;
-        char *data = NULL;
-        encode_header(&hdr, TNT_OP_PING, 0);
-        v[1].iov_base = (void *)hdr.header;
-        v[1].iov_len  = hdr.end - hdr.header;
-        char body[2]; data = body;
-
-        data = mp_encode_map(data, 0);
-        v[2].iov_base = body;
-        v[2].iov_len  = data - body;
-
-        size_t package_len = 0;
-        for (int i = 1; i < v_sz; ++i)
-                package_len += v[i].iov_len;
-        char len_prefix[9];
-        char *len_end = mp_encode_luint32(len_prefix, package_len);
-        v[0].iov_base = len_prefix;
-        v[0].iov_len = len_end - len_prefix;
-        WRITE_IOVEC(fd, v, v_sz);
-	READ(fd);
 }
 
 struct timespec
@@ -945,19 +554,13 @@ main(int argc, char **argv)
 	const char *host = "localhost";
 	uint16_t port = 3301;
 	int fd = bench_connect(host, port);
+
 	if (port == 3301) {
 		/* Tarantool 1.6+. */
 		char greeting[128];
 		read(fd, greeting, sizeof(greeting));
-		printf("%.*s\n", sizeof(greeting), greeting);
-		bench_iproto_call(fd, "bench_replace", 0x42424242);
-		printf("\n");
-		bench_iproto_call(fd, "bench_delete", 0x42424242);
-		printf("\n");
-		bench_iproto_call(fd, "bench_insert", 0x42424242);
-		printf("\n");
-		bench_iproto_call(fd, "bench_select", 0x42424242);
 	}
+
 	struct Data {
 		const char *name;
 		char *raw_req;
@@ -970,12 +573,12 @@ main(int argc, char **argv)
 #define ENTRY(name) { #name, tt_1_5_raw_req_ ## name, sizeof(tt_1_5_raw_req_ ## name), tt_1_5_raw_res_ ## name, sizeof(tt_1_5_raw_res_ ## name) }
 		ENTRY(call_bench_call),
 		ENTRY(call_bench_insert),
-		ENTRY(call_bench_delete),
 		ENTRY(call_bench_select),
+		ENTRY(call_bench_delete),
+		ENTRY(ping),
 		ENTRY(insert),
 		ENTRY(select),
 		ENTRY(delete),
-		ENTRY(ping),
 #undef ENTRY
 	};
 
@@ -983,9 +586,9 @@ main(int argc, char **argv)
 #define ENTRY(name) { #name, tt_last_raw_req_ ## name, sizeof(tt_last_raw_req_ ## name), tt_last_raw_res_ ## name, sizeof(tt_last_raw_res_ ## name) }
 		ENTRY(call_bench_call),
 		ENTRY(call_bench_insert),
-		ENTRY(call_bench_delete),
-		ENTRY(call_bench_select),
 		ENTRY(call_bench_replace),
+		ENTRY(call_bench_select),
+		ENTRY(call_bench_delete),
 		ENTRY(ping),
 		ENTRY(insert),
 		ENTRY(replace),
