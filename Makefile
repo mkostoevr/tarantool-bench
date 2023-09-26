@@ -1,6 +1,6 @@
 .PHONY: all
 
-all: run
+all: bench
 
 bench: main.c
 	gcc main.c -o bench -Os

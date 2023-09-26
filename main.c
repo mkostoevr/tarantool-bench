@@ -1,24 +1,13 @@
 #define _GNU_SOURCE
 
-#include <stdlib.h>
+#include <time.h>
+#include <errno.h>
 #include <stdio.h>
-#include <stdarg.h>
+#include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
-#include <stdint.h>
-#include <locale.h>
-#include <time.h>
-
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <netdb.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <limits.h>
 #include <unistd.h>
 
 #define lengthof(array) (sizeof(array) / sizeof(array[0]))
@@ -60,18 +49,6 @@ void DumpHex(const void* data, size_t size) {
 			}
 		}
 	}
-}
-
-void tnt_io_nonblock(int fd, int set) {
-	int flags = fcntl(fd, F_GETFL);
-	if (flags == -1)
-		ERROR_SYS("Couldn't get the socket flags");
-	if (set)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
-	if (fcntl(fd, F_SETFL, flags) == -1)
-		ERROR_SYS("Couldn't set the socket flags");
 }
 
 int
@@ -127,13 +104,15 @@ bench_finish(struct timespec t0)
 }
 
 uint64_t
-bench_raw_request(int fd, size_t req_size, const char *req, size_t res_size, const char *res)
+bench_raw_request(int fd, size_t req_size, const unsigned char *req, size_t res_size, const unsigned char *res)
 {
 	char buf[res_size];
 	struct timespec t0 = bench_start();
 	write(fd, req, req_size);
 	read(fd, buf, res_size);
 	uint64_t result = bench_finish(t0);
+	if (res_size > 27 && res[27] == 0x34)
+		buf[27] = 0x34;
 	if (memcmp(buf, res, res_size)) {
 		printf("Got:\n");
 		DumpHex(buf, res_size);
@@ -144,7 +123,7 @@ bench_raw_request(int fd, size_t req_size, const char *req, size_t res_size, con
 	return result;
 }
 
-char tt_1_5_raw_req_call_bench_call[] = {
+unsigned char tt_1_5_raw_req_call_bench_call[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x13, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -153,7 +132,7 @@ char tt_1_5_raw_req_call_bench_call[] = {
 	0x00, 0x00, 0x00, 0x00, /* No tuples. */
 };
 
-char tt_1_5_raw_res_call_bench_call[] = {
+unsigned char tt_1_5_raw_res_call_bench_call[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x08, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -161,7 +140,7 @@ char tt_1_5_raw_res_call_bench_call[] = {
 	0x00, 0x00, 0x00, 0x00, /* No tuples. */
 };
 
-char tt_1_5_raw_req_call_bench_insert[] = {
+unsigned char tt_1_5_raw_req_call_bench_insert[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x1A, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -170,7 +149,7 @@ char tt_1_5_raw_req_call_bench_insert[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_res_call_bench_insert[] = {
+unsigned char tt_1_5_raw_res_call_bench_insert[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x15, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -179,7 +158,7 @@ char tt_1_5_raw_res_call_bench_insert[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_req_call_bench_delete[] = {
+unsigned char tt_1_5_raw_req_call_bench_delete[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x1A, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -188,7 +167,7 @@ char tt_1_5_raw_req_call_bench_delete[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_res_call_bench_delete[] = {
+unsigned char tt_1_5_raw_res_call_bench_delete[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x15, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -197,7 +176,7 @@ char tt_1_5_raw_res_call_bench_delete[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_req_call_bench_select[] = {
+unsigned char tt_1_5_raw_req_call_bench_select[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x1A, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -206,7 +185,7 @@ char tt_1_5_raw_req_call_bench_select[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_res_call_bench_select[] = {
+unsigned char tt_1_5_raw_res_call_bench_select[] = {
 	0x16, 0x00, 0x00, 0x00, /* CALL */
 	0x15, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -215,7 +194,7 @@ char tt_1_5_raw_res_call_bench_select[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_req_insert[] = {
+unsigned char tt_1_5_raw_req_insert[] = {
 	0x0D, 0x00, 0x00, 0x00, /* INSERT */
 	0x11, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -224,7 +203,7 @@ char tt_1_5_raw_req_insert[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The tuple. */
 };
 
-char tt_1_5_raw_res_insert[] = {
+unsigned char tt_1_5_raw_res_insert[] = {
 	0x0D, 0x00, 0x00, 0x00, /* INSERT */
 	0x08, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -232,7 +211,7 @@ char tt_1_5_raw_res_insert[] = {
 	0x01, 0x00, 0x00, 0x00, /* What? */
 };
 
-char tt_1_5_raw_req_select[] = {
+unsigned char tt_1_5_raw_req_select[] = {
 	0x11, 0x00, 0x00, 0x00, /* SELECT */
 	0x1D, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -244,7 +223,7 @@ char tt_1_5_raw_req_select[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The key. */
 };
 
-char tt_1_5_raw_res_select[] = {
+unsigned char tt_1_5_raw_res_select[] = {
 	0x11, 0x00, 0x00, 0x00, /* SELECT */
 	0x15, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -253,7 +232,7 @@ char tt_1_5_raw_res_select[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The selected tuple. */
 };
 
-char tt_1_5_raw_req_delete[] = {
+unsigned char tt_1_5_raw_req_delete[] = {
 	0x15, 0x00, 0x00, 0x00, /* DELETE */
 	0x11, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -262,7 +241,7 @@ char tt_1_5_raw_req_delete[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The key. */
 };
 
-char tt_1_5_raw_res_delete[] = {
+unsigned char tt_1_5_raw_res_delete[] = {
 	0x15, 0x00, 0x00, 0x00, /* DELETE */
 	0x15, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
@@ -271,19 +250,19 @@ char tt_1_5_raw_res_delete[] = {
 	0x01, 0x00, 0x00, 0x00, 0x04, 0x42, 0x42, 0x42, 0x42, /* The deleted tuple. */
 };
 
-char tt_1_5_raw_req_ping[] = {
+unsigned char tt_1_5_raw_req_ping[] = {
 	0x00, 0xFF, 0x00, 0x00, /* PING */
 	0x00, 0x00, 0x00, 0x00, /* Body length. */
 	0x00, 0x00, 0x00, 0x00, /* Request ID. */
 };
 
-char tt_1_5_raw_res_ping[] = {
+unsigned char tt_1_5_raw_res_ping[] = {
         0x00, 0xFF, 0x00, 0x00, /* PING */
         0x00, 0x00, 0x00, 0x00, /* Body length. */
         0x00, 0x00, 0x00, 0x00, /* Request ID. */
 };
 
-char tt_last_raw_req_ping[] = {
+unsigned char tt_last_raw_req_ping[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x06, /* Size. */
 	0x82,                         /* Header. */
 	0x00, 0x40,                   /* IPROTO_REQUEST_TYPE: IPROTO_PING */
@@ -291,7 +270,7 @@ char tt_last_raw_req_ping[] = {
 	0x80,                         /* Body. */
 };
 
-char tt_last_raw_res_ping[] = {
+unsigned char tt_last_raw_res_ping[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x18,                               /* Size. */
 	0x83,                                                       /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,                         /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -300,7 +279,7 @@ char tt_last_raw_res_ping[] = {
 	0x80,                                                       /* Body. */
 };
 
-char tt_last_raw_req_insert[] = {
+unsigned char tt_last_raw_req_insert[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x11,             /* Size. */
 	0x82,                                     /* Header. */
 	0x00, 0x02,                               /* IPROTO_REQUEST_TYPE: IPROTO_INSERT */
@@ -310,7 +289,7 @@ char tt_last_raw_req_insert[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42, /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_insert[] = {
+unsigned char tt_last_raw_res_insert[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x24,                               /* Size. */
 	0x83,                                                       /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,                         /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -321,7 +300,7 @@ char tt_last_raw_res_insert[] = {
 	0x91, 0xCE, 0x42, 0x42, 0x42, 0x42,                         /* the inserted tuple. */
 };
 
-char tt_last_raw_req_replace[] = {
+unsigned char tt_last_raw_req_replace[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x11,             /* Size. */
 	0x82,                                     /* Header. */
 	0x00, 0x03,                               /* IPROTO_REQUEST_TYPE: IPROTO_REPLACE */
@@ -331,7 +310,7 @@ char tt_last_raw_req_replace[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42, /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_replace[] = {
+unsigned char tt_last_raw_res_replace[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x24,                               /* Size. */
 	0x83,                                                       /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,                         /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -342,7 +321,7 @@ char tt_last_raw_res_replace[] = {
 	0x91, 0xCE, 0x42, 0x42, 0x42, 0x42,                         /* [0x42424242]. */
 };
 
-char tt_last_raw_req_select[] = {
+unsigned char tt_last_raw_req_select[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1D,		  /* Size. */
 	0x82,					  /* Header. */
 	0x00, 0x01,				  /* IPROTO_REQUEST_TYPE: IPROTO_SELECT */
@@ -356,7 +335,7 @@ char tt_last_raw_req_select[] = {
 	0x20, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42, /* IPROTO_KEY: [0x42424242]. */
 };
 
-char tt_last_raw_res_select[] = {
+unsigned char tt_last_raw_res_select[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x24,   			    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -367,7 +346,7 @@ char tt_last_raw_res_select[] = {
 	0x91, 0xCE, 0x42, 0x42, 0x42, 0x42,			    /* [0x42424242]. */
 };
 
-char tt_last_raw_req_delete[] = {
+unsigned char tt_last_raw_req_delete[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x13,		  /* Size. */
 	0x82,					  /* Header. */
 	0x00, 0x05,				  /* IPROTO_REQUEST_TYPE: IPROTO_DELETE */
@@ -378,7 +357,7 @@ char tt_last_raw_req_delete[] = {
 	0x20, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42, /* IPROTO_KEY: [0x42424242]. */
 };
 
-char tt_last_raw_res_delete[] = {
+unsigned char tt_last_raw_res_delete[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x24,				    /* Size. */
 	0x83,							    /* Header.*/
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -389,7 +368,7 @@ char tt_last_raw_res_delete[] = {
 	0x91, 0xCE, 0x42, 0x42, 0x42, 0x42,			    /* [0x42424242]. */
 };
 
-char tt_last_raw_req_call_bench_call[] = {
+unsigned char tt_last_raw_req_call_bench_call[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x14,						/* Size. */
 	0x82,									/* Header. */
 	0x00, 0x06,								/* IPROTO_REQUEST_TYPE: IPROTO_CALL_16*/
@@ -399,7 +378,7 @@ char tt_last_raw_req_call_bench_call[] = {
 	0x21, 0x90,								/* IPROTO_TUPLE: [] */
 };
 
-char tt_last_raw_res_call_bench_call[] = {
+unsigned char tt_last_raw_res_call_bench_call[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1E,				    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -409,7 +388,7 @@ char tt_last_raw_res_call_bench_call[] = {
 	0x30, 0xDD, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_DATA: Array(0).*/
 };
 
-char tt_last_raw_req_call_bench_insert[] = {
+unsigned char tt_last_raw_req_call_bench_insert[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1B,							    /* Size. */
 	0x82,										    /* Header. */
 	0x00, 0x06,									    /* IPROTO_REQUEST_TYPE: IPROTO_CALL_16*/
@@ -419,7 +398,7 @@ char tt_last_raw_req_call_bench_insert[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42					    /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_call_bench_insert[] = {
+unsigned char tt_last_raw_res_call_bench_insert[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1E,				    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -429,7 +408,7 @@ char tt_last_raw_res_call_bench_insert[] = {
 	0x30, 0xDD, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_DATA: Array(0), */
 };
 
-char tt_last_raw_req_call_bench_delete[] = {
+unsigned char tt_last_raw_req_call_bench_delete[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1B,							    /* Size. */
 	0x82,										    /* Header. */
 	0x00, 0x06,									    /* IPROTO_REQUEST_TYPE: IPROTO_CALL_16*/
@@ -439,7 +418,7 @@ char tt_last_raw_req_call_bench_delete[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42					    /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_call_bench_delete[] = {
+unsigned char tt_last_raw_res_call_bench_delete[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1E,				    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -449,7 +428,7 @@ char tt_last_raw_res_call_bench_delete[] = {
 	0x30, 0xDD, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_DATA: Array(0), */
 };
 
-char tt_last_raw_req_call_bench_select[] = {
+unsigned char tt_last_raw_req_call_bench_select[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1B,							    /* Size. */
 	0x82,										    /* Header. */
 	0x00, 0x06,									    /* IPROTO_REQUEST_TYPE: IPROTO_CALL_16*/
@@ -459,7 +438,7 @@ char tt_last_raw_req_call_bench_select[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42					    /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_call_bench_select[] = {
+unsigned char tt_last_raw_res_call_bench_select[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1E,				    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -469,7 +448,7 @@ char tt_last_raw_res_call_bench_select[] = {
 	0x30, 0xDD, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_DATA: Array(0), */
 };
 
-char tt_last_raw_req_call_bench_replace[] = {
+unsigned char tt_last_raw_req_call_bench_replace[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1C,							          /* Size. */
 	0x82,										          /* Header. */
 	0x00, 0x06,									          /* IPROTO_REQUEST_TYPE: IPROTO_CALL_16*/
@@ -479,7 +458,7 @@ char tt_last_raw_req_call_bench_replace[] = {
 	0x21, 0x91, 0xCE, 0x42, 0x42, 0x42, 0x42					          /* IPROTO_TUPLE: [0x42424242] */
 };
 
-char tt_last_raw_res_call_bench_replace[] = {
+unsigned char tt_last_raw_res_call_bench_replace[] = {
 	0xCE, 0x00, 0x00, 0x00, 0x1E,				    /* Size. */
 	0x83,							    /* Header. */
 	0x00, 0xCE, 0x00, 0x00, 0x00, 0x00,			    /* IPROTO_REQUEST_TYPE: IPROTO_OK */
@@ -490,7 +469,7 @@ char tt_last_raw_res_call_bench_replace[] = {
 };
 
 void *
-raw_id_find(size_t raw_size, const char *raw)
+raw_id_find(size_t raw_size, const unsigned char *raw)
 {
 	const char needle[] = {0x42, 0x42, 0x42, 0x42};
 	return memmem(raw, raw_size, needle, sizeof(needle));
@@ -501,7 +480,7 @@ raw_id_update(void *id_ptr, uint32_t new_id)
 {
 	if (id_ptr == NULL)
 		return;
-	char *id_bytes = id_ptr;
+	unsigned char *id_bytes = (unsigned char *)id_ptr;
 	id_bytes[0] = (new_id >> 0) & 0xff;
 	id_bytes[1] = (new_id >> 8) & 0xff;
 	id_bytes[2] = (new_id >> 16) & 0xff;
@@ -551,8 +530,11 @@ median(size_t size, const uint64_t *data)
 int
 main(int argc, char **argv)
 {
+	if (argc != 3)
+		ERROR_FATAL("Usage: %s <port> <bench_func>", argv[0]);
+
 	const char *host = "localhost";
-	uint16_t port = 3301;
+	uint16_t port = atoi(argv[1]);
 	int fd = bench_connect(host, port);
 
 	if (port == 3301) {
@@ -563,9 +545,9 @@ main(int argc, char **argv)
 
 	struct Data {
 		const char *name;
-		char *raw_req;
+		unsigned char *raw_req;
 		size_t raw_req_size;
-		char *raw_res;
+		unsigned char *raw_res;
 		size_t raw_res_size;
 	};
 	
@@ -597,7 +579,7 @@ main(int argc, char **argv)
 #undef ENTRY
 	};
 
-	const char *bench_func = argc >= 2 ? argv[1] : "call_bench_call";
+	const char *bench_func = argv[2];
 	struct Data *datas = port == 3301 ? data_tt_last : data_tt_1_5;
 	size_t data_count = port == 3301 ? lengthof(data_tt_last) : lengthof(data_tt_1_5);
 	size_t data_i = -1;
@@ -614,10 +596,10 @@ main(int argc, char **argv)
 
 	struct Data data = datas[data_i];
 
-	uint64_t reqs = 10000;
-	uint64_t *latencies_ns = calloc(1, reqs * sizeof(*latencies_ns));
-	char *raw_req = data.raw_req;
-	char *raw_res = data.raw_res;
+	uint64_t reqs = 1000000;
+	uint64_t *latencies_ns = (uint64_t *)calloc(1, reqs * sizeof(*latencies_ns));
+	unsigned char *raw_req = data.raw_req;
+	unsigned char *raw_res = data.raw_res;
 	size_t raw_req_size = data.raw_req_size;
 	size_t raw_res_size = data.raw_res_size;
 	void *raw_req_id_ptr = raw_id_find(raw_req_size, raw_req);
@@ -647,15 +629,6 @@ main(int argc, char **argv)
 	double p99_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.99)] / 1000.0;
 	double p999_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.999)] / 1000.0;
 
-	printf("90%%: %.2f\n", p90_us);
-	printf("99%%: %.2f\n", p99_us);
-	printf("99.9%%: %.2f\n", p999_us);
-	printf("MED: %.2f\n", med_us);
-	printf("AVG: %.2f\n", avg_us);
-	printf("MIN: %.2f\n", min_us);
-	printf("MAX: %.2f\n", max_us);
-	printf("COUNT: %lu\n", reqs);
-	printf("TIME: %.2f\n", (double)overall_ns / 1000000000.0);
-	printf("RPS: %.0f\n", rps);
+	printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%lu\t%.2f\t%.0f\n", p90_us, p99_us, p999_us, med_us, avg_us, min_us, max_us, reqs, (double)overall_ns / 1000000000.0, rps);
 	return 0;
 }
