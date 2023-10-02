@@ -14,6 +14,7 @@
 
 #define ERROR_SYS(msg) do { perror(msg); exit(1); } while (0)
 #define ERROR_FATAL(fmt, ...) do { printf(fmt "\n", ## __VA_ARGS__); exit(1); } while (0)
+#define BUG_ON(x) do { if (x) ERROR_FATAL("Bug at %s:%d: %s\n", __FILE__, __LINE__, #x); } while (0)
 
 uint64_t
 nsecs(struct timespec t0, struct timespec t1)
@@ -101,6 +102,53 @@ bench_finish(struct timespec t0)
 	struct timespec t1;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	return nsecs(t0, t1);
+}
+
+uint64_t
+get_unsigned(char *buf, int bytes)
+{
+	uint64_t result = 0;
+	for (int i = 0; i < bytes; i++)
+		result |= buf[i] >> (((bytes - 1) - i) * 8);
+	return result;
+}
+
+uint64_t
+get_uint64(char *buf)
+{
+	return get_unsigned(buf, 8);
+}
+
+uint32_t
+get_uint32(char *buf)
+{
+	return get_unsigned(buf, 4);
+}
+
+void
+bench_raw_request_expect(int fd, size_t req_size, const unsigned char *req, size_t *res_size, unsigned char **res)
+{
+	unsigned char data_size_and_possibly_data[9]; /* Size of uint64 encoded in msgpack. */
+	size_t data_size = 0; /* Size of packet data excluding the first msgpack field, which encodes the size. */
+	size_t data_size_size = 0; /* Size of msgpack containing data size. */
+	write(fd, req, req_size);
+	read(fd, data_size_and_possibly_data, sizeof(data_size_and_possibly_data));
+	if (data_size_and_possibly_data[0] == 0xce) {
+		data_size = get_uint32(&data_size_and_possibly_data[1]);
+		data_size_size = 5;
+	} else if (data_size_and_possibly_data[0] == 0xcf) {
+		data_size = get_uint64(&data_size_and_possibly_data[1]);
+		data_size_size = 9;
+	} else {
+		ERROR_FATAL("Unexpected packet data_size encoding: %02x\n", data_size_and_possibly_data[0]);
+	}
+	size_t data_bytes_read = sizeof(data_size_and_possibly_data) - data_size_size;
+	size_t data_bytes_remained = data_size - (sizeof(data_size_and_possibly_data) - data_size_size);
+	unsigned char *result = calloc(1, data_size + data_size_size);
+	memcpy(result, data_size_and_possibly_data, sizeof(data_size_and_possibly_data));
+	read(fd, result + sizeof(data_size_and_possibly_data), data_bytes_remained);
+	*res_size = data_size + data_size_size;
+	*res = result;
 }
 
 uint64_t
@@ -565,7 +613,7 @@ main(int argc, char **argv)
 	};
 
 	struct Data data_tt_last[] = {
-#define ENTRY(name) { #name, tt_last_raw_req_ ## name, sizeof(tt_last_raw_req_ ## name), tt_last_raw_res_ ## name, sizeof(tt_last_raw_res_ ## name) }
+#define ENTRY(name) { #name, tt_last_raw_req_ ## name, sizeof(tt_last_raw_req_ ## name), NULL, SIZE_MAX }
 		ENTRY(call_bench_call),
 		ENTRY(call_bench_insert),
 		ENTRY(call_bench_replace),
@@ -596,12 +644,21 @@ main(int argc, char **argv)
 
 	struct Data data = datas[data_i];
 
-	uint64_t reqs = 1000000;
 	uint64_t *latencies_ns = (uint64_t *)calloc(1, reqs * sizeof(*latencies_ns));
 	unsigned char *raw_req = data.raw_req;
 	unsigned char *raw_res = data.raw_res;
 	size_t raw_req_size = data.raw_req_size;
 	size_t raw_res_size = data.raw_res_size;
+
+	BUG_ON(raw_req_size == SIZE_MAX || raw_req == NULL);
+	/* If size is invalid, pointer should be invalid too. */
+	BUG_ON((raw_res_size == SIZE_MAX) != (raw_res == NULL));
+
+	if (raw_res_size == SIZE_MAX)
+		bench_raw_request_expect(fd, raw_req_size, raw_req, &raw_res_size, &raw_res);
+
+	BUG_ON(raw_res_size == SIZE_MAX || raw_res == NULL);
+
 	void *raw_req_id_ptr = raw_id_find(raw_req_size, raw_req);
 	void *raw_res_id_ptr = raw_id_find(raw_res_size, raw_res);
 
