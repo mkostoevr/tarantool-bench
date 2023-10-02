@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include <netdb.h>
 #include <unistd.h>
@@ -578,11 +579,29 @@ median(size_t size, const uint64_t *data)
 int
 main(int argc, char **argv)
 {
-	if (argc != 3)
-		ERROR_FATAL("Usage: %s <port> <bench_func>", argv[0]);
+	int port = 3301;
+	uint64_t reqs = 1000000;
+	const char *bench_func = NULL;
+
+	while (bench_func == NULL) {
+		switch (getopt(argc, argv, "bp:c:")) {
+		case 'p':
+			port = atoi(optarg);
+			continue;
+		case 'c':
+			reqs = atol(optarg);
+			continue;
+		case '?':
+			return -1;
+		case -1:
+			if (optind == argc)
+				ERROR_FATAL("Usage: %s <bench_func> [-b][-p <port>][-c <request_count>]", argv[0]);
+			bench_func = argv[optind];
+			break;
+		};
+	}
 
 	const char *host = "localhost";
-	uint16_t port = atoi(argv[1]);
 	int fd = bench_connect(host, port);
 
 	if (port == 3301) {
@@ -627,7 +646,6 @@ main(int argc, char **argv)
 #undef ENTRY
 	};
 
-	const char *bench_func = argv[2];
 	struct Data *datas = port == 3301 ? data_tt_last : data_tt_1_5;
 	size_t data_count = port == 3301 ? lengthof(data_tt_last) : lengthof(data_tt_1_5);
 	size_t data_i = -1;
