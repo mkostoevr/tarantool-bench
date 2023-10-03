@@ -155,13 +155,11 @@ bench_raw_request_expect(int fd, size_t req_size, const unsigned char *req, size
 uint64_t
 bench_raw_request(int fd, size_t req_size, const unsigned char *req, size_t res_size, const unsigned char *res)
 {
-	char buf[res_size];
+	unsigned char *buf = (unsigned char *)calloc(1, res_size);
 	struct timespec t0 = bench_start();
 	write(fd, req, req_size);
-	read(fd, buf, res_size);
+	recv(fd, buf, res_size, MSG_WAITALL);
 	uint64_t result = bench_finish(t0);
-	if (res_size > 27 && res[27] == 0x34)
-		buf[27] = 0x34;
 	if (memcmp(buf, res, res_size)) {
 		printf("Got:\n");
 		DumpHex(buf, res_size);
@@ -169,6 +167,7 @@ bench_raw_request(int fd, size_t req_size, const unsigned char *req, size_t res_
 		DumpHex(res, res_size);
 		ERROR_FATAL("Unexpected response.");
 	}
+	free(buf);
 	return result;
 }
 
@@ -579,12 +578,16 @@ median(size_t size, const uint64_t *data)
 int
 main(int argc, char **argv)
 {
+	bool batch = false;
 	int port = 3301;
 	uint64_t reqs = 1000000;
 	const char *bench_func = NULL;
 
 	while (bench_func == NULL) {
 		switch (getopt(argc, argv, "bp:c:")) {
+		case 'b':
+			batch = true;
+			continue;
 		case 'p':
 			port = atoi(optarg);
 			continue;
@@ -617,7 +620,7 @@ main(int argc, char **argv)
 		unsigned char *raw_res;
 		size_t raw_res_size;
 	};
-	
+
 	struct Data data_tt_1_5[] = {
 #define ENTRY(name) { #name, tt_1_5_raw_req_ ## name, sizeof(tt_1_5_raw_req_ ## name), tt_1_5_raw_res_ ## name, sizeof(tt_1_5_raw_res_ ## name) }
 		ENTRY(call_bench_call),
@@ -680,30 +683,51 @@ main(int argc, char **argv)
 	void *raw_req_id_ptr = raw_id_find(raw_req_size, raw_req);
 	void *raw_res_id_ptr = raw_id_find(raw_res_size, raw_res);
 
-	struct timespec t0 = bench_start();
-	for (size_t i = 0; i < reqs; i++) {
-		size_t id = rand_id();
-		raw_id_update(raw_req_id_ptr, id);
-		raw_id_update(raw_res_id_ptr, id);
-		uint64_t latency_ns = bench_raw_request(fd, raw_req_size, raw_req, raw_res_size, raw_res);
-		latencies_ns[i] = latency_ns;
+	if (!batch) {
+		struct timespec t0 = bench_start();
+		for (size_t i = 0; i < reqs; i++) {
+			size_t id = rand_id();
+			raw_id_update(raw_req_id_ptr, id);
+			raw_id_update(raw_res_id_ptr, id);
+			uint64_t latency_ns = bench_raw_request(fd, raw_req_size, raw_req, raw_res_size, raw_res);
+			latencies_ns[i] = latency_ns;
+		}
+		uint64_t overall_ns = bench_finish(t0);
+		double rps = (double)reqs / ((double)(overall_ns) / 1000000000.0);
+
+		raw_id_reset(raw_req_id_ptr);
+		raw_id_reset(raw_res_id_ptr);
+
+		qsort(latencies_ns, reqs, sizeof(*latencies_ns), comp_u64);
+
+		double avg_us = average(reqs, latencies_ns) / 1000.0;
+		double med_us = median(reqs, latencies_ns) / 1000.0;
+		double min_us = (double)latencies_ns[0] / 1000.0;
+		double max_us = (double)latencies_ns[reqs - 1] / 1000.0;
+		double p90_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.9)] / 1000.0;
+		double p99_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.99)] / 1000.0;
+		double p999_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.999)] / 1000.0;
+
+		printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%lu\t%.2f\t%.0f\n", p90_us, p99_us, p999_us,
+		       med_us, avg_us, min_us, max_us, reqs, (double)overall_ns / 1000000000.0, rps);
+	} else {
+		size_t sendbuf_size = reqs * raw_req_size;
+		size_t recvbuf_size = reqs * raw_res_size;
+		unsigned char *sendbuf = (unsigned char *)calloc(1, sendbuf_size);
+		unsigned char *recvbuf = (unsigned char *)calloc(1, recvbuf_size);
+
+		for (size_t i = 0; i < reqs; i++) {
+			size_t id = rand_id();
+			raw_id_update(raw_req_id_ptr, id);
+			raw_id_update(raw_res_id_ptr, id);
+			memcpy(sendbuf + i * raw_req_size, raw_req, raw_req_size);
+			memcpy(recvbuf + i * raw_res_size, raw_res, raw_res_size);
+		}
+
+		uint64_t time_ns = bench_raw_request(fd, sendbuf_size, sendbuf, recvbuf_size, recvbuf);
+		double time = (double)time_ns / 1000000000.0;
+		double rps = (double)reqs / time;
+		printf("Time: %.2f\nRPS: %.0f\n", time, rps);
 	}
-	uint64_t overall_ns = bench_finish(t0);
-	double rps = (double)reqs / ((double)(overall_ns) / 1000000000.0);
-
-	raw_id_reset(raw_req_id_ptr);
-	raw_id_reset(raw_res_id_ptr);
-
-	qsort(latencies_ns, reqs, sizeof(*latencies_ns), comp_u64);
-
-	double avg_us = average(reqs, latencies_ns) / 1000.0;
-	double med_us = median(reqs, latencies_ns) / 1000.0;
-	double min_us = (double)latencies_ns[0] / 1000.0;
-	double max_us = (double)latencies_ns[reqs - 1] / 1000.0;
-	double p90_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.9)] / 1000.0;
-	double p99_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.99)] / 1000.0;
-	double p999_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.999)] / 1000.0;
-
-	printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%lu\t%.2f\t%.0f\n", p90_us, p99_us, p999_us, med_us, avg_us, min_us, max_us, reqs, (double)overall_ns / 1000000000.0, rps);
 	return 0;
 }
