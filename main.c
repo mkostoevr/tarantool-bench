@@ -579,18 +579,26 @@ int
 main(int argc, char **argv)
 {
 	bool batch = false;
-	bool cdf = false;
+	const char *cdf = NULL;
+	const char *hist = NULL;
+	const char *rhist = NULL;
 	int port = 3301;
 	uint64_t reqs = 1000000;
 	const char *bench_func = NULL;
 
 	while (bench_func == NULL) {
-		switch (getopt(argc, argv, "bgp:c:")) {
+		switch (getopt(argc, argv, "bg:h:r:p:c:")) {
 		case 'b':
 			batch = true;
 			continue;
 		case 'g':
-			cdf = true;
+			cdf = optarg;
+			continue;
+		case 'h':
+			hist = optarg;
+			continue;
+		case 'r':
+			rhist = optarg;
 			continue;
 		case 'p':
 			port = atoi(optarg);
@@ -712,16 +720,47 @@ main(int argc, char **argv)
 		double p99_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.99)] / 1000.0;
 		double p999_us = (double)latencies_ns[(size_t)((reqs - 1) * 0.999)] / 1000.0;
 
-		if (!cdf) {
-			printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%lu\t%.2f\t%.0f\n", p90_us, p99_us, p999_us,
-			       med_us, avg_us, min_us, max_us, reqs, (double)overall_ns / 1000000000.0, rps);
-		} else {
+		if (cdf) {
+			FILE *out = fopen(cdf, "w");
 			for (size_t i = 0; i < reqs; i++) {
 				uint64_t x = latencies_ns[i];
 				double y = (double)(i + 1) / (double)reqs;
-				printf("%zu\t%f\n", x, y);
+				fprintf(out, "%zu\t%f\n", x, y);
 			}
+			fclose(out);
 		}
+
+		if (hist) {
+			FILE *out = fopen(hist, "w");
+			uint64_t granularity = 10;
+			uint64_t prev_value = latencies_ns[0] - (latencies_ns[0] % granularity);
+			size_t prev_count = 1;
+			for (size_t i = 0; i < reqs; i++) {
+				uint64_t x = latencies_ns[i] - (latencies_ns[i] % granularity);
+				if (x != prev_value) {
+					fprintf(out, "%zu\t%zu\n", prev_value, prev_count);
+					prev_value = x;
+					prev_count = 1;
+				} else {
+					prev_count++;
+				}
+			}
+			fprintf(out, "%zu\t%zu\n", prev_value, prev_count);
+			fclose(out);
+		}
+
+		if (rhist) {
+			FILE *out = fopen(rhist, "w");
+			for (size_t i = 0; i < reqs; i++) {
+				double x = (double)(i + 1) / reqs;
+				uint64_t y = latencies_ns[i];
+				fprintf(out, "%f\t%zu\n", x, y);
+			}
+			fclose(out);
+		}
+
+		printf("%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%lu\t%.2f\t%.0f\n", p90_us, p99_us, p999_us,
+		       med_us, avg_us, min_us, max_us, reqs, (double)overall_ns / 1000000000.0, rps);
 	} else {
 		size_t sendbuf_size = reqs * raw_req_size;
 		size_t recvbuf_size = reqs * raw_res_size;
