@@ -9,6 +9,8 @@ class Stat:
     p999: float
     med: float
     avg: float
+    disp: float
+    disp_p: float
     dev: float
     dev_p: float
     min_: float
@@ -52,11 +54,13 @@ class Measurements:
             p999 = values[int((len(values) - 1) * 0.999)]
             med = median(values)
             avg = mean(values)
-            dev = stdev(values)
-            dev_p = ratio(avg, dev)
             min_ = min(values)
             max_ = max(values)
-            field2stat[field] = Stat(p90, p99, p999, med, avg, dev, dev_p, min_, max_)
+            disp = (max_ - min_) / 2
+            disp_p = ratio(avg, disp)
+            dev = stdev(values)
+            dev_p = ratio(avg, dev)
+            field2stat[field] = Stat(p90, p99, p999, med, avg, disp, disp_p, dev, dev_p, min_, max_)
         return field2stat
 
 def print_rows(rows, prefix = 4):
@@ -109,9 +113,9 @@ for ver in ver2funcs:
         print(f'  {func}:')
         f = ver2funcs[ver][func]
         s = f.stats()
-        header = ('', 'MED', 'AVG', 'CV')
-        p90 = ('90%', f'{s["p90"].med:.2f}', f'{s["p90"].avg:.2f}', f'±{s["p90"].dev_p:.2f}%')
-        p99 = ('99%', f'{s["p99"].med:.2f}', f'{s["p99"].avg:.2f}', f'±{s["p99"].dev_p:.2f}%')
-        p999 = ('99.9%', f'{s["p999"].med:.2f}', f'{s["p999"].avg:.2f}', f'±{s["p999"].dev_p:.2f}%')
-        prs = ('RPS', f'{s["rps"].med:.2f}', f'{s["rps"].avg:.2f}', f'±{s["rps"].dev_p:.2f}%')
+        header = ('', 'MED', 'MIN', 'MAX', 'DISP%', 'CV')
+        p90 = ('90%', f'{s["p90"].med:.2f}', f'{s["p90"].min_:.2f}', f'{s["p90"].max_:.2f}', f'±{s["p90"].disp_p:.2f}%', f'±{s["p90"].dev_p:.2f}%')
+        p99 = ('99%', f'{s["p99"].med:.2f}', f'{s["p99"].min_:.2f}', f'{s["p99"].max_:.2f}', f'±{s["p99"].disp_p:.2f}%', f'±{s["p99"].dev_p:.2f}%')
+        p999 = ('99.9%', f'{s["p999"].med:.2f}', f'{s["p999"].min_:.2f}', f'{s["p999"].max_:.2f}', f'±{s["p999"].disp_p:.2f}%', f'±{s["p999"].dev_p:.2f}%')
+        prs = ('RPS', f'{s["rps"].med:.2f}', f'{s["rps"].min_:.2f}', f'{s["rps"].max_:.2f}', f'±{s["rps"].disp_p:.2f}%', f'±{s["rps"].dev_p:.2f}%')
         print_rows((header, p90, p99, p999, prs))
