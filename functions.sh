@@ -18,6 +18,22 @@ function gen4 {
     firefox "plots/all_${v}_hist.png" &
 }
 
+function gen5 {
+    local func="$1";
+    local yend="$2";
+    gnuplot -e "input_a='data/${func}_1.5_rhist.txt'; \
+                input_b='data/${func}_3.0_rhist.txt'; \
+                output_file='plots/${func}_1.5vs3.0_hist.png'; xbegin=0; xend=0.999; ybegin=0; yend=$yend; main_title='Tarantool 1.5 vs 3.0 ($func)'; brief_a='1.5'; brief_b='3.0'; x_label='Percentile'; y_label='Latency (µs)'" plot_vs.p;
+    firefox "plots/${func}_1.5vs3.0_hist.png" &
+}
+
+function gen_vs_plots {
+    gen5 ping 40000;
+    gen5 insert 60000;
+    gen5 select 40000;
+    gen5 delete 60000;
+}
+
 function gen {
     gen2 ping 1.5 hist 19500 20500
     gen2 ping 1.5 cdf 19500 20500
