@@ -581,7 +581,7 @@ main(int argc, char **argv)
 	bool batch = false;
 	const char *cdf = NULL;
 	const char *hist = NULL;
-	const char *rhist = NULL;
+	const char *rcdf = NULL;
 	int port = 3301;
 	uint64_t reqs = 1000000;
 	const char *bench_func = NULL;
@@ -594,11 +594,11 @@ main(int argc, char **argv)
 		case 'g':
 			cdf = optarg;
 			continue;
+		case 'r':
+			rcdf = optarg;
+			continue;
 		case 'h':
 			hist = optarg;
-			continue;
-		case 'r':
-			rhist = optarg;
 			continue;
 		case 'p':
 			port = atoi(optarg);
@@ -730,6 +730,16 @@ main(int argc, char **argv)
 			fclose(out);
 		}
 
+		if (rcdf) {
+			FILE *out = fopen(rcdf, "w");
+			for (size_t i = 0; i < reqs; i++) {
+				double x = (double)(i + 1) / reqs;
+				uint64_t y = latencies_ns[i];
+				fprintf(out, "%f\t%zu\n", x, y);
+			}
+			fclose(out);
+		}
+
 		if (hist) {
 			FILE *out = fopen(hist, "w");
 			uint64_t granularity = 10;
@@ -746,16 +756,6 @@ main(int argc, char **argv)
 				}
 			}
 			fprintf(out, "%zu\t%zu\n", prev_value, prev_count);
-			fclose(out);
-		}
-
-		if (rhist) {
-			FILE *out = fopen(rhist, "w");
-			for (size_t i = 0; i < reqs; i++) {
-				double x = (double)(i + 1) / reqs;
-				uint64_t y = latencies_ns[i];
-				fprintf(out, "%f\t%zu\n", x, y);
-			}
 			fclose(out);
 		}
 

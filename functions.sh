@@ -23,9 +23,9 @@ function gen4 {
 function gen_vs_plot {
     local func="$1";
     local yend="$2";
-    gnuplot -e "input_a='data/${func}_1.5_rhist.txt'; \
-                input_b='data/${func}_3.0_rhist.txt'; \
-                output_file='plots/${func}_1.5vs3.0_hist.png'; xbegin=0; xend=0.999; ybegin=0; yend=$yend; main_title='Tarantool 1.5 vs 3.0 ($func)'; brief_a='1.5'; brief_b='3.0'; x_label='Percentile'; y_label='Latency (µs)'" plot_vs.p;
+    gnuplot -e "input_a='data/${func}_1.5_rcdf.txt'; \
+                input_b='data/${func}_3.0_rcdf.txt'; \
+                output_file='plots/${func}_1.5vs3.0_rcdf.png'; xbegin=0; xend=0.999; ybegin=0; yend=$yend; main_title='Tarantool 1.5 vs 3.0 ($func)'; brief_a='1.5'; brief_b='3.0'; x_label='Percentile'; y_label='Latency (µs)'" plot_vs.p;
     firefox "plots/${func}_1.5vs3.0_hist.png" &
 }
 
